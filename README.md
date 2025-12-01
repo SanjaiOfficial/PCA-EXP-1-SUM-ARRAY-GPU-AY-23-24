@@ -1,9 +1,12 @@
 # PCA: EXP-1  SUM ARRAY GPU
-<h3>ENTER YOUR NAME: SANJAI L</h3>
+<h3>ENTER YOUR NAME: SSANJAI L </h3>
 <h3>ENTER YOUR REGISTER NO: 212223230184</h3>
-<h3>EX. NO: 01 </h3>
+<h3>EX. NO: 01</h3>
+<h3>DATE: 01/09/2025</h3>
 <h1> <align=center> SUM ARRAY ON HOST AND DEVICE </h3>
+  
 PCA-GPU-based-vector-summation.-Explore-the-differences.
+
 i) Using the program sumArraysOnGPU-timer.cu, set the block.x = 1023. Recompile and run it. Compare the result with the execution configuration of block.x = 1024. Try to explain the difference and the reason.
 
 ii) Refer to sumArraysOnGPU-timer.cu, and let block.x = 256. Make a new kernel to let each thread handle two elements. Compare the results with other execution confi gurations.
@@ -28,21 +31,36 @@ Google Colab with NVCC Compiler
 6. Copy output data from the device to the host and verify the results against the host's sequential vector addition. Free memory on the host and the device.
 
 ## PROGRAM:
-```
+```C
 %%cuda
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <sys/time.h>
 
-#define CHECK(call)                                                      \
-{                                                                        \
-    cudaError_t err = call;                                              \
-    if (err != cudaSuccess) {                                            \
-        fprintf(stderr, "CUDA error at %s %d: %s\n",                     \
-                __FILE__, __LINE__, cudaGetErrorString(err));            \
-        exit(EXIT_FAILURE);                                              \
-    }                                                                    \
+#ifndef _COMMON_H
+#define _COMMON_H
+
+#define CHECK(call)                                                            \
+{                                                                              \
+    const cudaError_t error = call;                                            \
+    if (error != cudaSuccess)                                                  \
+    {                                                                          \
+        fprintf(stderr, "Error: %s:%d, ", __FILE__, __LINE__);                 \
+        fprintf(stderr, "code: %d, reason: %s\n", error,                       \
+                cudaGetErrorString(error));                                    \
+        exit(1);                                                               \
+    }                                                                          \
 }
+
+inline double seconds()
+{
+    struct timeval tp;
+    struct timezone tzp;
+    gettimeofday(&tp, &tzp);
+    return ((double)tp.tv_sec + (double)tp.tv_usec * 1.e-6);
+}
+
+#endif // _COMMON_H
 
 
 void checkResult(float *hostRef, float *gpuRef, const int N)
@@ -89,16 +107,14 @@ void sumArraysOnHost(float *A, float *B, float *C, const int N)
     }
 }
 
+__global__ void sumArraysOnGPU(float *A, float *B, float *C, const int N)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-__global__ void sumArraysOnGPU(float *A, float *B, float *C, const int N){
-    int i = blockIdx.x*blockDim.x+threadIdx.x;
-    if (i<N) C[i] = A[i] + B[i];
-}
-
-double seconds() {
-struct timeval tp;
-gettimeofday(&tp,NULL);
-return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
+    if (i < N)
+    {
+        C[i] = A[i] + B[i];
+    }
 }
 
 
@@ -154,17 +170,64 @@ int main(int argc, char **argv)
     CHECK(cudaMemcpy(d_B, h_B, nBytes, cudaMemcpyHostToDevice));
     CHECK(cudaMemcpy(d_C, gpuRef, nBytes, cudaMemcpyHostToDevice));
 
+    dim3 block;
+    dim3 grid;
     // invoke kernel at host side
     int iLen = 512;
-    dim3 block (iLen);
-    dim3 grid  ((nElem + block.x - 1) / block.x);
+    
+    
+    int numBlocks = 4096;    // SAME GRID SIZE FOR ALL RUNS
+
+    // --- 512 ---
+    iLen = 512;
+    block = dim3(iLen);
+    grid = dim3(numBlocks);
 
     iStart = seconds();
     sumArraysOnGPU<<<grid, block>>>(d_A, d_B, d_C, nElem);
     CHECK(cudaDeviceSynchronize());
     iElaps = seconds() - iStart;
-    printf("sumArraysOnGPU <<<  %d, %d  >>>  Time elapsed %f sec\n", grid.x,
-           block.x, iElaps);
+    printf("GPU <<<%d blocks, %d threads>>> Time = %f sec\n",
+          grid.x, block.x, iElaps);
+
+
+    // --- 256 ---
+    iLen = 256;
+    block = dim3(iLen);
+    grid = dim3(numBlocks);
+
+    iStart = seconds();
+    sumArraysOnGPU<<<grid, block>>>(d_A, d_B, d_C, nElem);
+    CHECK(cudaDeviceSynchronize());
+    iElaps = seconds() - iStart;
+    printf("GPU <<<%d blocks, %d threads>>> Time = %f sec\n",
+          grid.x, block.x, iElaps);
+
+
+    // --- 1023 ---
+    iLen = 1023;
+    block = dim3(iLen);
+    grid = dim3(numBlocks);
+
+    iStart = seconds();
+    sumArraysOnGPU<<<grid, block>>>(d_A, d_B, d_C, nElem);
+    CHECK(cudaDeviceSynchronize());
+    iElaps = seconds() - iStart;
+    printf("GPU <<<%d blocks, %d threads>>> Time = %f sec\n",
+          grid.x, block.x, iElaps);
+
+
+    // --- 1024 ---
+    iLen = 1024;
+    block = dim3(iLen);
+    grid = dim3(numBlocks);
+
+    iStart = seconds();
+    sumArraysOnGPU<<<grid, block>>>(d_A, d_B, d_C, nElem);
+    CHECK(cudaDeviceSynchronize());
+    iElaps = seconds() - iStart;
+    printf("GPU <<<%d blocks, %d threads>>> Time = %f sec\n",
+       grid.x, block.x, iElaps);
 
     // check kernel error
     CHECK(cudaGetLastError()) ;
@@ -188,10 +251,13 @@ int main(int argc, char **argv)
 
     return(0);
 }
-
 ```
+
 ## OUTPUT:
-<img width="930" height="121" alt="Screenshot 2025-09-08 155046" src="https://github.com/user-attachments/assets/9fc6bb4c-619b-482c-af22-90cd7d665c56" />
+<img width="1259" height="187" alt="image" src="https://github.com/user-attachments/assets/4ae941c7-0999-49cc-a3d3-3ba8c76afeef" />
+
+
+
 
 
 ## RESULT:
